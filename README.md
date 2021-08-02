@@ -1,5 +1,5 @@
 # Storee
-Totally not a Wattpad clone 👀
+Totally not a Wattpad ripoff 👀
 
 To use, clone this repo and add your tokens.
 
