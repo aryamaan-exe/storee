@@ -4,7 +4,9 @@ from pymongo import MongoClient
 from asyncio import TimeoutError
 from secrets import token_hex
 from datetime import datetime
+import os
 import json
+from profanityfilter import ProfanityFilter
 
 client = commands.Bot(command_prefix="-")
 tokens = json.load(open("tokens.json"))
@@ -78,7 +80,7 @@ async def new(ctx, bc=None, name=None):
         m = months[n.month]
         y = n.year
         date = f"{d}, {dt} {m} {y}"
-        books.insert_one({"_id": b_id, "name": name, "author": ctx.author.id, "tags": tags, "date": date, "chapters": []})
+        books.insert_one({"_id": b_id, "name": name, "author": ctx.author.id, "tags": tags, "date": date, "chapters": [], "namel": name.lower()})
         
         e = discord.Embed(
             title="Made your book!",
@@ -124,7 +126,7 @@ async def new(ctx, bc=None, name=None):
         c_id = token_hex(5)
         chaps.append(c_id)
         await books.update_one({"_id": book["_id"]}, {"$set": {"chapters": chaps}})
-        await chapters.insert_one({"_id": c_id, "name": name, "author": ctx.author.id, "book": book["_id"], "content": ""})
+        await chapters.insert_one({"_id": c_id, "name": name, "author": ctx.author.id, "book": book["_id"], "content": "(This chapter is empty)", "namel": name.lower()})
 
         e = discord.Embed(
             title="Your chapter has been created!",
@@ -132,7 +134,7 @@ async def new(ctx, bc=None, name=None):
             color=blue
         )
         
-        e.set_footer(text="Note- if you want to keep your chapter content a secret, DM this bot with -add")
+        e.set_footer(text=f"Note- if you want to keep your chapter content a secret, DM this bot with -add. Chapter ID: {c_id}")
         await ctx.send(embed=e)
     
     await ctx.send("Are you creating a book or chapter? (type book/chapter)")
@@ -151,6 +153,123 @@ async def new(ctx, bc=None, name=None):
 @client.command(aliases=["add"])
 async def write(ctx):
     await ctx.send("Which chapter do you wanna write to? Name or ID works")
-    # Will commit tomorrow lmao
+    try:
+        msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+    except TimeoutError:
+        await err(ctx, "-add")
+    else:
+        cname = msg.content.lower()
+        if chapters.find_one({"_id": cname}) == None:
+            query = chapters.find({"namel": cname})
+            if len(query) == 0:
+                await ctx.send("You don't have a chapter by that name-")
+            elif len(query) > 1:
+                s = ""
+                for q in query:
+                    s += q["name"] + " from " + books.find_one("_id": q["book"])["name"] + " ID: " + q["book"] + "\n"
+                await ctx.send(f"Did you mean:\n\n{s}\n\n(enter book ID)")
+                try:
+                    msg = await client.wait_for("message", timeout=20, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+                except TimeoutError:
+                    err(ctx, "-add")
+                else:
+                    b_id = msg.content.lower()
+                    chapter = chapters.find_one({"book": b_id, "namel": cname})
+                    if chapter == None:
+                        return await ctx.send("That isn't a valid id lmao")
+                    
+                    chapter = chapter["_id"]
+            else:
+                chapter = chapters.find_one({"namel": cname})["_id"]
+        else:
+            chapter = cname
+    
+    await ctx.send("Do you wanna write from a text file (f) or from a message (m)? File is recommended for longer chapters.")
+    try:
+        msg = await client.wait_for("message", timeout=20, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+    except TimeoutError:
+        await err(ctx, "-add")
+    else:
+        c = msg.content.lower()
+        if c not in "fm":
+            return await ctx.send("You didn't type f or m lmao do -add again")
+        
+        if c == "m":
+            await ctx.send("Enter chapter content:")
+            try:
+                msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+            except TimeoutError:
+                await err(ctx, "-add")
+            else:
+                content = msg.content
+        else:
+            await ctx.send("Attach a .txt file with chapter content:")
+            try:
+                msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+            except TimeoutError:
+                await err(ctx, "-add")
+            else:
+                if len(msg.attachments) == 0:
+                    return await ctx.send("You didn't attach any files-")
+                
+                fname = secrets.token_hex(8) + ".txt"
+                await msg.attachments[0].save(fname)
+                with open(fname) as f:
+                    content = fname.read()
+                
+                os.remove(fname)
+        
+        pf = ProfanityFilter()
+        warn = ""
+        if not pf.is_clean(content):
+            content = ":warning: This story contains content that may not be suited towards younger audiences.\n\n" + content
+            warn = "A swear word warning has been added."
+        chapters.update_one({"_id": chapter}, {"$set": {"content": content}})
+
+        await ctx.send("Added chapter content. " + warn)
+
+'''
+@client.command()
+async def read(ctx):
+    await ctx.send("Enter book/chapter name or ID")
+    try:
+        msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+    except TimeoutError:
+        await err(ctx, "-read")
+    else:
+        search = msg.content.lower()
+        
+        if chapters.find_one({"_id": search}) == None:
+
+        else:
+            chapter = chapters.find_one({"_id": search})
+            if chapter == None:
+                chapter = chapters.find({"namel": search})
+                if len(chapters) == 0:
+                    book = books.find_one({"_id": search})
+                    if book == None:
+                        book = books.find({"name": search})
+                        if len(books) == 0:
+                            await ctx.send("Couldn't find a book or chapter by that name")\
+                        else:
+                            # chapters of book
+                    else:
+                        # chapters of book
+                elif len(chapters) > 1:
+            else:
+                content = chapter["content"]
+'''
+
+@client.command()
+async def read(ctx, c_id):
+    chapter = chapters.find_one({"_id": c_id})
+    e = discord.Embed(
+        title=chapter["name"],
+        description=chapter["content"],
+        color=blue
+    )
+    e.set_footer(text=f"By {client.get_user(chapter['author']).name}")
+
+    await ctx.send(embed=e)
 
 client.run(tokens["bot"])
