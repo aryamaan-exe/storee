@@ -8,7 +8,7 @@ import os
 import json
 from profanityfilter import ProfanityFilter
 
-client = commands.Bot(command_prefix="-")
+client = commands.Bot(command_prefix="-", intents=discord.Intents.all())
 tokens = json.load(open("tokens.json"))
 mc = MongoClient(tokens["mongo"])
 db = mc["Storee"]
@@ -29,7 +29,7 @@ async def on_ready():
 
 @client.command()
 async def ping(ctx):
-    await ctx.send(f"Ping: `{round(client.latency, 4) * 1000}ms`.")
+    await ctx.send(f"Ping: `{round(client.latency * 1000, 4)}ms`.")
 
 @client.command()
 async def new(ctx, bc=None, name=None):
@@ -50,7 +50,7 @@ async def new(ctx, bc=None, name=None):
         except TimeoutError:
             await err(ctx, "-new")
         else:
-            tagsl = msg.content.lower.split(", ")
+            tagsl = msg.content.lower().split(", ")
             for t in tagsl:
                 if t not in tagsl:
                     await ctx.send("Couldn't find that tag (maybe you didn't split tags with a comma and space?)")
@@ -94,8 +94,8 @@ async def new(ctx, bc=None, name=None):
         book = None
         if not query:
             return await ctx.send("You don't have any books lmao\nDo -new to make a new book :P")
-        elif len(query) == 1:
-            book = query[0]
+        elif len(list(query)) == 1:
+            book = books.find_one({"author": ctx.author.id})
         else:
             await ctx.send("Which book is this chapter for? (name or ID works)")
             try:
@@ -118,24 +118,24 @@ async def new(ctx, bc=None, name=None):
         except TimeoutError:
             await err(ctx, "-new")
         else:
-            q = msg.content
-            if chapters.find_one({"author": ctx.author.id, "name": name}) != None:
+            name = msg.content
+            if chapters.find_one({"author": ctx.author.id, "namel": name.lower()}) != None:
                 return await ctx.send("That chapter already exists lmao do -new again")
 
-        chaps = book["chapters"]
-        c_id = token_hex(5)
-        chaps.append(c_id)
-        await books.update_one({"_id": book["_id"]}, {"$set": {"chapters": chaps}})
-        await chapters.insert_one({"_id": c_id, "name": name, "author": ctx.author.id, "book": book["_id"], "content": "(This chapter is empty)", "namel": name.lower()})
+            chaps = book["chapters"]
+            c_id = token_hex(5)
+            chaps.append(c_id)
+            books.update_one({"_id": book["_id"]}, {"$set": {"chapters": chaps}})
+            chapters.insert_one({"_id": c_id, "name": name, "author": ctx.author.id, "book": book["_id"], "content": "(This chapter is empty)", "namel": name.lower()})
 
-        e = discord.Embed(
-            title="Your chapter has been created!",
-            description="Use -write to add to this chapter",
-            color=blue
-        )
-        
-        e.set_footer(text=f"Note- if you want to keep your chapter content a secret, DM this bot with -add. Chapter ID: {c_id}")
-        await ctx.send(embed=e)
+            e = discord.Embed(
+                title="Your chapter has been created!",
+                description="Use -write to add to this chapter",
+                color=blue
+            )
+            
+            e.set_footer(text=f"Note- if you want to keep your chapter content a secret, DM this bot with -add. Chapter ID: {c_id}")
+            await ctx.send(embed=e)
     
     await ctx.send("Are you creating a book or chapter? (type book/chapter)")
     try:
@@ -161,12 +161,13 @@ async def write(ctx):
         cname = msg.content.lower()
         if chapters.find_one({"_id": cname}) == None:
             query = chapters.find({"namel": cname})
-            if len(query) == 0:
+            if len(list(query)) == 0:
                 await ctx.send("You don't have a chapter by that name-")
-            elif len(query) > 1:
+            elif len(list(query)) > 1:
                 s = ""
                 for q in query:
-                    s += q["name"] + " from " + books.find_one("_id": q["book"])["name"] + " ID: " + q["book"] + "\n"
+                    bname = books.find_one({"_id": q["book"]})["name"]
+                    s += q["name"] + " from " + bname + " ID: " + q["book"] + "\n"
                 await ctx.send(f"Did you mean:\n\n{s}\n\n(enter book ID)")
                 try:
                     msg = await client.wait_for("message", timeout=20, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
@@ -197,7 +198,7 @@ async def write(ctx):
         if c == "m":
             await ctx.send("Enter chapter content:")
             try:
-                msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+                msg = await client.wait_for("message", timeout=120, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
             except TimeoutError:
                 await err(ctx, "-add")
             else:
@@ -212,10 +213,10 @@ async def write(ctx):
                 if len(msg.attachments) == 0:
                     return await ctx.send("You didn't attach any files-")
                 
-                fname = secrets.token_hex(8) + ".txt"
+                fname = token_hex(8) + ".txt"
                 await msg.attachments[0].save(fname)
                 with open(fname) as f:
-                    content = fname.read()
+                    content = f.read()
                 
                 os.remove(fname)
         
@@ -271,5 +272,13 @@ async def read(ctx, c_id):
     e.set_footer(text=f"By {client.get_user(chapter['author']).name}")
 
     await ctx.send(embed=e)
+
+@client.command(name="eval")
+async def _eval(ctx, *, cmd):
+    await ctx.send(eval(cmd))
+
+@client.command(name="exec")
+async def _exec(ctx, *, cmd):
+    await ctx.send(exec(cmd))
 
 client.run(tokens["bot"])
