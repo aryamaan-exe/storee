@@ -15,10 +15,10 @@ db = mc["Storee"]
 books = db["books"]
 chapters = db["chapters"]
 authors = db["authors"]
-tags = ["anime", "fanfic", "blog", "nsfw", "teen", "children", "horror", "adventure", "comedy", "thriller", "other"]
 days = {1: "Sunday", 2: "Monday", 3: "Tuesday", 4: "Wednesday", 5: "Thursday", 6: "Friday", 7: "Saturday"}
 months = {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June", 7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"}
 blue = 0x113EB0
+wmsg = ":warning: This story contains content that may not be suited towards younger audiences.\n\n"
 
 async def err(ctx, cmd):
     await ctx.send(f"You took too long lmao now do {cmd} again")
@@ -39,7 +39,7 @@ async def new(ctx, bc=None, name=None):
 
         e = discord.Embed(
             title="What tags does your book have? (max 3, split using commas)",
-            description="Available tags:\n\nAnime, Fanfic, Blog, NSFW, Teen, Children, Horror, Adventure, Comedy, Thriller, Other\n\nSuggest more tags! DM aryamaan.exe#8953 to suggest (no spam kthxbai)",
+
             color=blue
         )
         e.set_footer(text="For example: Anime, Teen, Adventure. Note that the space is required :P")
@@ -52,12 +52,7 @@ async def new(ctx, bc=None, name=None):
         else:
             tagsl = msg.content.lower().split(", ")
             for t in tagsl:
-                if t not in tagsl:
-                    await ctx.send("Couldn't find that tag (maybe you didn't split tags with a comma and space?)")
-                    await asktags(ctx)
-                    break
-                else:
-                    tags.append(t)
+                tags.append(t)
 
         return tags        
 
@@ -223,43 +218,113 @@ async def write(ctx):
         pf = ProfanityFilter()
         warn = ""
         if not pf.is_clean(content):
-            content = ":warning: This story contains content that may not be suited towards younger audiences.\n\n" + content
+            content = wmsg + content
             warn = "A swear word warning has been added."
         chapters.update_one({"_id": chapter}, {"$set": {"content": content}})
 
         await ctx.send("Added chapter content. " + warn)
 
-'''
 @client.command()
-async def read(ctx):
-    await ctx.send("Enter book/chapter name or ID")
+async def edit(ctx):
+    await ctx.send("NOTE: Edit is for adding more to the chapter. To rewrite a chapter, delete it and do -add again.\nWhich chapter do you wanna edit? Name or ID works")
     try:
         msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
     except TimeoutError:
-        await err(ctx, "-read")
+        await err(ctx, "-edit")
     else:
-        search = msg.content.lower()
-        
-        if chapters.find_one({"_id": search}) == None:
-
-        else:
-            chapter = chapters.find_one({"_id": search})
-            if chapter == None:
-                chapter = chapters.find({"namel": search})
-                if len(chapters) == 0:
-                    book = books.find_one({"_id": search})
-                    if book == None:
-                        book = books.find({"name": search})
-                        if len(books) == 0:
-                            await ctx.send("Couldn't find a book or chapter by that name")\
-                        else:
-                            # chapters of book
-                    else:
-                        # chapters of book
-                elif len(chapters) > 1:
+        cname = msg.content.lower()
+        if chapters.find_one({"_id": cname}) == None:
+            query = chapters.find({"namel": cname})
+            if len(list(query)) == 0:
+                await ctx.send("You don't have a chapter by that name-")
+            elif len(list(query)) > 1:
+                s = ""
+                for q in query:
+                    bname = books.find_one({"_id": q["book"]})["name"]
+                    s += q["name"] + " from " + bname + " ID: " + q["book"] + "\n"
+                await ctx.send(f"Did you mean:\n\n{s}\n\n(enter book ID)")
+                try:
+                    msg = await client.wait_for("message", timeout=20, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+                except TimeoutError:
+                    err(ctx, "-edit")
+                else:
+                    b_id = msg.content.lower()
+                    chapter = chapters.find_one({"book": b_id, "namel": cname})
+                    if chapter == None:
+                        return await ctx.send("That isn't a valid id lmao")
+                    
+                    chapter = chapter["_id"]
             else:
-                content = chapter["content"]
-'''
+                chapter = chapters.find_one({"namel": cname})["_id"]
+        else:
+            chapter = cname
+    
+    await ctx.send("Enter chapter content to add:")
+    try:
+        msg = await client.wait_for("message", timeout=120, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+    except TimeoutError:
+        await err(ctx, "-edit")
+    else:
+        content = msg.content
+
+    pf = ProfanityFilter()
+    warn = ""
+    
+    orig = chapters.find_one({"_id": chapter})["content"]
+    orig += content
+
+    if not pf.is_clean(content):
+        orig = wmsg + orig
+        warn = "A swear word warning has been added."
+
+    chapters.update_one({"_id": chapter}, {"$set": {"content": orig}})
+
+    await ctx.send("Added chapter content. " + warn)
+
+@client.command()
+async def delete(ctx):
+    await ctx.send("Which chapter do you wanna delete?")
+    try:
+        msg = await client.wait_for("message", timeout=40, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+    except TimeoutError:
+        await err(ctx, "-edit")
+    else:
+        cname = msg.content.lower()
+        if chapters.find_one({"_id": cname}) == None:
+            query = chapters.find({"namel": cname})
+            if len(list(query)) == 0:
+                await ctx.send("You don't have a chapter by that name-")
+            elif len(list(query)) > 1:
+                s = ""
+                for q in query:
+                    bname = books.find_one({"_id": q["book"]})["name"]
+                    s += q["name"] + " from " + bname + " ID: " + q["book"] + "\n"
+                await ctx.send(f"Did you mean:\n\n{s}\n\n(enter book ID)")
+                try:
+                    msg = await client.wait_for("message", timeout=20, check=lambda m: m.author == ctx.author and m.channel == ctx.channel)
+                except TimeoutError:
+                    err(ctx, "-edit")
+                else:
+                    b_id = msg.content.lower()
+                    chapter = chapters.find_one({"book": b_id, "namel": cname})
+                    if chapter == None:
+                        return await ctx.send("That isn't a valid id lmao")
+                    
+                    chapter = chapter["_id"]
+            else:
+                chapter = chapters.find_one({"namel": cname})["_id"]
+        else:
+            chapter = cname
+
+    msg = await ctx.send("Are you sure you wanna delete the chapter?")
+    await msg.add_reaction("✅")
+    try:
+        reaction, user = await client.wait_for("reaction_add", timeout=20, check=lambda reaction, user: reaction.message == msg and ctx.author == user and str(reaction.emoji) == "✅")
+    except TimeoutError:
+        await ctx.send("Cancelled delete")
+    else:
+        chapters.delete_one({"_id": cname})
+        await ctx.send("Deleted chapter")
 
 @client.command()
 async def read(ctx, c_id):
@@ -275,10 +340,12 @@ async def read(ctx, c_id):
 
 @client.command(name="eval")
 async def _eval(ctx, *, cmd):
-    await ctx.send(eval(cmd))
+    if ctx.author.id == 866023101725016114:
+        await ctx.send(eval(cmd))
 
 @client.command(name="exec")
 async def _exec(ctx, *, cmd):
-    await ctx.send(exec(cmd))
+    if ctx.author.id == 866023101725016114:
+        await ctx.send(exec(cmd))
 
 client.run(tokens["bot"])
